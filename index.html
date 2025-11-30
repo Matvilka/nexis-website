@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Nexis - Minecraft Anarchy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #050505;
+            --bg-panel: #0a0a0a;
+            --bg-input: #111111;
+            --accent: #5865f2; 
+            --accent-dark: #3b45b5;
+            --error: #cf3434;
+            --success: #2e7d32;
+            --text-main: #ffffff;
+            --text-muted: #888888;
+            --border: 1px solid rgba(255, 255, 255, 0.1);
+            --transition: all 0.3s ease;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-deep);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #rainCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+
+        .screen {
+            position: absolute; width: 100%; height: 100%; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; opacity: 0; pointer-events: none;
+            transition: opacity 0.5s ease; padding: 20px;
+        }
+        .screen.active { opacity: 1; pointer-events: all; z-index: 10; }
+
+        /* Капча */
+        .captcha-box {
+            background: rgba(10, 10, 10, 0.95); border: var(--border); padding: 40px;
+            width: 100%; max-width: 400px; text-align: center; backdrop-filter: blur(10px);
+            box-shadow: 0 0 50px rgba(0,0,0,0.9);
+        }
+        .captcha-code {
+            font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: bold;
+            letter-spacing: 12px; color: var(--text-main); background: #151515;
+            padding: 15px; margin-bottom: 20px; text-decoration: line-through; border: var(--border);
+        }
+
+        /* Элементы интерфейса */
+        input {
+            width: 100%; padding: 14px; background: var(--bg-input); border: var(--border);
+            color: white; font-family: 'JetBrains Mono', monospace; outline: none; margin-bottom: 15px;
+            user-select: text; 
+        }
+        input:focus { border-color: var(--accent); }
+        
+        button {
+            width: 100%; padding: 14px; background: var(--accent); color: white; border: none;
+            font-weight: 600; cursor: pointer; text-transform: uppercase; transition: var(--transition);
+        }
+        button:hover { background: var(--accent-dark); }
+
+        .server-logo { font-size: 70px; font-weight: 900; text-transform: uppercase; margin-bottom: 10px; text-shadow: 0 0 40px rgba(255,255,255,0.05); }
+        .nav-buttons { display: flex; gap: 20px; }
+        .btn-outline { background: transparent; border: 1px solid #333; color: var(--text-muted); padding: 15px 40px; cursor: pointer; }
+        .btn-outline:hover { border-color: white; color: white; }
+
+        .content-wrapper { width: 100%; max-width: 950px; height: 85vh; overflow-y: auto; padding-right: 10px; }
+        .section { display: none; animation: fadeIn 0.4s ease; }
+        .section.active-tab { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .donate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .rank-item { background: #0d0d0d; padding: 18px; border: 1px solid #222; margin-bottom: 10px; cursor: pointer; transition: var(--transition); display: flex; justify-content: space-between; }
+        .rank-item:hover, .rank-item.selected { border-color: var(--accent); background: #141414; }
+        
+        /* Ссылка на условия */
+        .terms-link { display: block; text-align: center; margin-top: 15px; color: #555; font-size: 12px; text-decoration: underline; cursor: pointer; }
+        .terms-link:hover { color: #888; }
+        
+        /* Блок успешной оплаты (скрыт по умолчанию) */
+        #payment-success {
+            display: none;
+            text-align: center;
+            padding: 20px 0;
+            animation: fadeIn 0.5s ease;
+        }
+        .success-icon { font-size: 40px; color: var(--success); margin-bottom: 15px; }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #333; }
+
+        @media (max-width: 800px) { .donate-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <canvas id="rainCanvas"></canvas>
+
+    <!-- КАПЧА -->
+    <div id="screen-captcha" class="screen active">
+        <div class="captcha-box">
+            <div style="margin-bottom: 20px; color: #888; letter-spacing: 2px;">КАПЧА</div>
+            <div id="captcha-display" class="captcha-code"></div>
+            <input type="text" id="captcha-input" placeholder="Код..." maxlength="5">
+            <button onclick="checkCaptcha()">Войти</button>
+            <div id="captcha-error" style="color: var(--error); margin-top: 15px; display: none;">Ошибка</div>
+        </div>
+    </div>
+
+    <!-- ГЛАВНОЕ МЕНЮ -->
+    <div id="screen-menu" class="screen">
+        <h1 class="server-logo">Nexis</h1>
+        <div style="color:#888; margin-bottom:40px;">Что хотите посетить?</div>
+        <div class="nav-buttons">
+            <button class="btn-outline" onclick="openSection('donate')">Донат магазин</button>
+            <button class="btn-outline" onclick="openSection('general')">Общее</button>
+        </div>
+    </div>
+
+    <!-- КОНТЕНТ -->
+    <div id="screen-content" class="screen">
+        <div class="content-wrapper">
+            <button onclick="goBackToMenu()" style="background:none; border:none; color:#888; width:auto; cursor:pointer; margin-bottom:20px;">&larr; Назад в меню</button>
+
+            <!-- РАЗДЕЛ: ДОНАТ -->
+            <div id="tab-donate" class="section">
+                <h2 style="border-bottom:1px solid #333; padding-bottom:15px; margin-bottom:25px;">Донат магазин</h2>
+                
+                <div class="donate-grid">
+                    <!-- Левая колонка: Ввод -->
+                    <div style="background: #0a0a0a; padding: 30px; border: 1px solid #333;">
+                        <div id="input-container">
+                            <label style="color:#666; font-size:12px; display:block; margin-bottom:5px;">НИКНЕЙМ</label>
+                            <input type="text" id="nick" placeholder="Ник на сервере">
+                            
+                            <label style="color:#666; font-size:12px; display:block; margin-bottom:5px;">ПОЧТА</label>
+                            <input type="email" id="email" placeholder="mail@example.com">
+                            
+                            <!-- ПРОМОКОД -->
+                            <label style="color:#666; font-size:12px; display:block; margin-bottom:5px;">ПРОМОКОД</label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" id="promo" placeholder="Если есть" style="margin-bottom: 0;">
+                                <button onclick="checkPromo()" style="width: auto; padding: 0 20px; font-size: 12px; background: #222;">ОК</button>
+                            </div>
+                            <div id="promo-msg" style="font-size: 11px; color: var(--success); margin-top: 5px; height: 15px;"></div>
+
+                            <div style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px;">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+                                    <span>Итого:</span>
+                                    <span id="final-price" style="font-weight:bold;">0 ₽</span>
+                                </div>
+                                <button id="pay-btn" onclick="processPayment()">Оплатить</button>
+                                
+                                <a class="terms-link" onclick="openSection('terms')">Читать условия оплаты</a>
+                            </div>
+                        </div>
+
+                        <!-- Блок успеха (если промокод сработал) -->
+                        <div id="payment-success">
+                            <div class="success-icon">✓</div>
+                            <h3 style="margin-bottom: 10px; color: white;">Успешно!</h3>
+                            <p style="color: #bbb; font-size: 13px;">
+                                Вы использовали секретный промокод.<br>
+                                Привилегия активирована.<br>
+                                Приятной игры на Nexis!
+                            </p>
+                            <div style="margin-top: 20px; font-size: 12px; color: #555;">
+                                Если донат не пришел:<br> Telegram: @Matvilka
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Правая колонка: Выбор -->
+                    <div id="rank-list">
+                        <div class="rank-item" onclick="selectRank(this, 99, 'VIP')">
+                            <div><b style="color:#a5b4fc">VIP</b><div style="font-size:11px; color:#555">Полет, кит старт</div></div>
+                            <div>99 ₽</div>
+                        </div>
+                        <div class="rank-item" onclick="selectRank(this, 199, 'HERO')">
+                            <div><b style="color:#fbbf24">HERO</b><div style="font-size:11px; color:#555">Repair, 5 домов</div></div>
+                            <div>199 ₽</div>
+                        </div>
+                        <div class="rank-item" onclick="selectRank(this, 349, 'TITAN')">
+                            <div><b style="color:#fb7185">TITAN</b><div style="font-size:11px; color:#555">Heal, Feed</div></div>
+                            <div>349 ₽</div>
+                        </div>
+                        <div class="rank-item" onclick="selectRank(this, 499, 'IMMORTAL')">
+                            <div><b style="color:#f472b6">IMMORTAL</b><div style="font-size:11px; color:#555">God Mode</div></div>
+                            <div>499 ₽</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- РАЗДЕЛ: ОБЩЕЕ -->
+            <div id="tab-general" class="section">
+                <h2>О сервере</h2>
+                <div style="background:#0a0a0a; padding:30px; line-height:1.6; color:#ccc;">
+                    <p>За этим сервером стоит один человек.</p>
+                    <p>Я создатель и разработчик. Потратил 2 месяца на написание плагинов.</p>
+                    <p>Добро пожаловать в мою анархию ♥️.</p>
+                    
+                    <div style="margin-top: 40px; border-top: 1px solid #333; padding-top: 20px;">
+                        <h3 style="font-size: 16px; margin-bottom: 15px; color: white;">Поддержка</h3>
+                        <p>Телеграм Бот - <span style="color: #777;">потом напишу</span></p>
+                        <p>Создатель (Телеграм) - <a href="https://t.me/Matvilka" target="_blank" style="color: var(--accent); text-decoration: none;">Matvilka</a></p>
+                        <p>Создатель (Дискорд) - <span style="color: var(--accent);">@matvilka88</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- РАЗДЕЛ: УСЛОВИЯ ОПЛАТЫ -->
+            <div id="tab-terms" class="section">
+                <button onclick="openSection('donate')" style="background: #222; width: auto; font-size: 12px; padding: 10px 20px; margin-bottom: 20px;">&larr; Вернуться к оплате</button>
+                <h2>Условия оплаты</h2>
+                <div style="background:#0a0a0a; padding:30px; line-height:1.8; color:#bbb; font-size: 13px;">
+                    <p><b style="color:white">1. Виртуальные услуги:</b> Вы приобретаете виртуальные игровые привилегии на нашем сервере Minecraft. Это не покупка физического товара.</p>
+                    <br>
+                    <p><b style="color:white">2. Моментальное зачисление:</b> Привилегия активируется автоматически сразу после успешной оплаты.</p>
+                    <br>
+                    <p><b style="color:white">3. Без возвратов:</b> Все платежи являются невозвратными.</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Блокировка защиты ---
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        document.onkeydown = function(e) {
+            if(e.keyCode == 123) return false;
+            if(e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false;
+            if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false;
+        }
+
+        // --- ЛОГИКА ---
+        let captchaCode = "", selectedPrice = 0, selectedProduct = "", discount = 0;
+
+        function generateCaptcha() {
+            const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            captchaCode = "";
+            for(let i=0; i<5; i++) captchaCode += c.charAt(Math.floor(Math.random()*c.length));
+            document.getElementById("captcha-display").innerText = captchaCode.split('').join(' ');
+        }
+
+        function checkCaptcha() {
+            if(document.getElementById("captcha-input").value.toUpperCase().replace(/\s/g,'') === captchaCode) {
+                document.getElementById("screen-captcha").classList.remove("active");
+                setTimeout(()=>document.getElementById("screen-menu").classList.add("active"), 500);
+            } else {
+                document.getElementById("captcha-error").style.display="block";
+                generateCaptcha();
+                document.getElementById("captcha-input").value="";
+            }
+        }
+
+        function openSection(tab) {
+            document.getElementById("screen-menu").classList.remove("active");
+            document.getElementById("screen-content").classList.add("active");
+            document.querySelectorAll('.section').forEach(e=>e.classList.remove('active-tab'));
+            document.getElementById('tab-'+tab).classList.add('active-tab');
+        }
+
+        function goBackToMenu() {
+            document.getElementById("screen-content").classList.remove("active");
+            setTimeout(()=>document.getElementById("screen-menu").classList.add("active"), 500);
+            // Сброс формы
+            document.getElementById("input-container").style.display = "block";
+            document.getElementById("payment-success").style.display = "none";
+        }
+
+        function selectRank(el, price, name) {
+            document.querySelectorAll('.rank-item').forEach(e=>e.classList.remove('selected'));
+            el.classList.add('selected');
+            
+            // Если активирован промокод, цена всегда 0
+            if (discount === 100) {
+                selectedPrice = 0;
+            } else {
+                selectedPrice = price;
+            }
+            
+            selectedProduct = name;
+            document.getElementById("final-price").innerText = selectedPrice + " ₽";
+        }
+
+        // --- ЛОГИКА ПРОМОКОДА ---
+        function checkPromo() {
+            const val = document.getElementById('promo').value.trim();
+            const msg = document.getElementById('promo-msg');
+            
+            if (val === 'Matvilka88') {
+                discount = 100;
+                msg.innerText = "Промокод активирован! Скидка 100%";
+                msg.style.color = "var(--success)";
+                selectedPrice = 0;
+                document.getElementById("final-price").innerText = "0 ₽";
+                document.getElementById("pay-btn").innerText = "Получить бесплатно";
+            } else {
+                discount = 0;
+                msg.innerText = "Неверный промокод";
+                msg.style.color = "var(--error)";
+                if (selectedProduct) {
+                    if(selectedProduct=='VIP') selectedPrice=99;
+                    if(selectedProduct=='HERO') selectedPrice=199;
+                    if(selectedProduct=='TITAN') selectedPrice=349;
+                    if(selectedProduct=='IMMORTAL') selectedPrice=499;
+                    document.getElementById("final-price").innerText = selectedPrice + " ₽";
+                }
+                document.getElementById("pay-btn").innerText = "Оплатить";
+            }
+        }
+
+        // --- ОПЛАТА ---
+        function processPayment() {
+            const nick = document.getElementById("nick").value;
+            const email = document.getElementById("email").value;
+
+            if(!selectedProduct) return alert("Выберите товар!");
+            if(!nick) return alert("Введите никнейм!");
+            if(!email || !email.includes("@")) return alert("Введите корректную почту!");
+
+            // СЦЕНАРИЙ 1: БЕСПЛАТНО (ПРОМОКОД)
+            if (selectedPrice === 0 && discount === 100) {
+                // Показываем успех визуально, но PHP не дергаем (почту не шлем)
+                document.getElementById("input-container").style.display = "none";
+                document.getElementById("payment-success").style.display = "block";
+                return;
+            }
+
+            // СЦЕНАРИЙ 2: ПЛАТНО (FREEKASSA)
+            const orderId = Math.floor(Date.now() / 1000); 
+            
+            // !!! ВСТАВЬ НИЖЕ СВОЙ ID FREEKASSA !!!
+            const merchantId = 'YOUR_MERCHANT_ID'; 
+            
+            const url = `https://pay.freekassa.ru/?m=${merchantId}&oa=${selectedPrice}&o=${orderId}&currency=RUB&us_nick=${nick}&us_email=${email}`;
+            window.location.href = url;
+        }
+
+        // Дождь
+        const cvs = document.getElementById('rainCanvas'), ctx = cvs.getContext('2d');
+        let w, h, drops=[];
+        function initR() { w=cvs.width=window.innerWidth; h=cvs.height=window.innerHeight; drops=[]; 
+            for(let i=0;i<w/15;i++) drops.push({x:Math.random()*w,y:Math.random()*h,s:Math.random()*5+5}); }
+        function drawR() { ctx.clearRect(0,0,w,h); ctx.fillStyle='rgba(100,100,120,0.5)';
+            drops.forEach(d=>{ctx.fillRect(d.x,d.y,1,15); d.y+=d.s; if(d.y>h){d.y=-20;d.x=Math.random()*w}}); requestAnimationFrame(drawR); }
+        
+        window.onresize=initR; window.onload=()=>{generateCaptcha();initR();drawR();}
+    </script>
+</body>
+</html>
